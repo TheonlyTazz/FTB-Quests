@@ -14,6 +14,8 @@ import dev.ftb.mods.ftbquests.quest.QuestObjectBase;
 import dev.ftb.mods.ftbquests.quest.task.Task;
 import dev.ftb.mods.ftbquests.quest.task.TaskType;
 import dev.ftb.mods.ftbquests.quest.task.TaskTypes;
+import dev.ftb.mods.ftbquests.quest.task.ThroughputResourceType;
+import dev.ftb.mods.ftbquests.quest.task.ThroughputTask;
 import dev.ftb.mods.ftbquests.quest.theme.property.ThemeProperties;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.GuiGraphics;
@@ -39,6 +41,20 @@ public class AddTaskButton extends Button {
 		List<ContextMenuItem> contextMenu = new ArrayList<>();
 
 		for (TaskType type : TaskTypes.TYPES.values()) {
+			if (type == TaskTypes.THROUGHPUT) {
+				List<ContextMenuItem> throughputMenu = new ArrayList<>();
+				for (ThroughputResourceType<?> resourceType : ThroughputResourceType.values()) {
+					throughputMenu.add(new ContextMenuItem(resourceType.getDisplayName(), resourceType::getMenuIcon, b -> {
+						playClickSound();
+						ThroughputTask task = new ThroughputTask(0L, quest);
+						task.configureDefaultResourceType(resourceType);
+						NetworkManager.sendToServer(CreateObjectMessage.create(task, null));
+					}));
+				}
+				contextMenu.add(new ContextMenuItem(type.getDisplayName(), type.getIconSupplier(), b -> getGui().openContextMenu(throughputMenu)));
+				continue;
+			}
+
 			contextMenu.add(new ContextMenuItem(type.getDisplayName(), type.getIconSupplier(), b -> {
 				playClickSound();
 				type.getGuiProvider().openCreationGui(this.parent, quest, (task, extra) ->

@@ -132,6 +132,22 @@ public class TaskScreenRenderer implements BlockEntityRenderer<TaskScreenBlockEn
         poseStack.popPose();
     }
 
+    private void drawThroughput(TaskScreenBlockEntity state, ThroughputTask task, PoseStack poseStack, MultiBufferSource multiBufferSource, int packedLight) {
+        ClientThroughputTelemetry.get(state.getTeamId(), task.id).ifPresent(telemetry -> {
+            Font font = Minecraft.getInstance().font;
+            Component text = Component.literal(telemetry.format());
+            float len = font.width(text);
+            float scale = Math.min(0.8f / len, 0.015f);
+
+            poseStack.pushPose();
+            poseStack.translate(0.5f, 0.15f, -0.011f);
+            poseStack.scale(scale, -scale, 1f);
+            Matrix4f posMat = poseStack.last().pose();
+            font.drawInBatch(text, -len / 2f, 0, 0xFFD8D8D8, state.isTextShadow(), posMat, multiBufferSource, Font.DisplayMode.NORMAL, 0, packedLight);
+            poseStack.popPose();
+        });
+    }
+
     // FIXME: FTB Library should handle this, but its 3d icon rendering needs rewriting (it doesn't properly use MultiBufferSource)
     private void drawTaskIcon(TaskScreenBlockEntity taskScreen, TeamData data, Icon icon, PoseStack poseStack, MultiBufferSource buffer) {
         VertexConsumer vertexConsumer = buffer.getBuffer(RenderType.text(InventoryMenu.BLOCK_ATLAS));

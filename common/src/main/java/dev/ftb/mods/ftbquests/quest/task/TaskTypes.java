@@ -53,6 +53,8 @@ public interface TaskTypes {
 							.orElse("missingno")).withTint(Color4I.rgb(0x8080FF))
 					.combineWith(Icon.getIcon(FluidTask.TANK_TEXTURE.toString()))
 	);
+	TaskType THROUGHPUT = register(FTBQuestsAPI.rl("throughput"), ThroughputTask::new,
+			() -> Icon.getIcon("minecraft:item/hopper"));
 
 	static void init() {
 	}

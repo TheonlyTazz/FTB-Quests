@@ -13,7 +13,10 @@ import dev.ftb.mods.ftbquests.net.BlockConfigResponseMessage;
 import dev.ftb.mods.ftbquests.quest.BaseQuestFile;
 import dev.ftb.mods.ftbquests.quest.QuestObjectBase;
 import dev.ftb.mods.ftbquests.quest.TeamData;
+import dev.ftb.mods.ftbquests.quest.task.ItemTask;
 import dev.ftb.mods.ftbquests.quest.task.Task;
+import dev.ftb.mods.ftbquests.quest.task.ThroughputTask;
+import dev.ftb.mods.ftbquests.quest.task.ThroughputTypes;
 import dev.ftb.mods.ftbquests.registry.ModBlockEntityTypes;
 import dev.ftb.mods.ftbquests.registry.ModBlocks;
 import dev.ftb.mods.ftbquests.registry.ModDataComponents;
@@ -76,6 +79,16 @@ public class TaskScreenBlockEntity extends EditableBlockEntity implements ITaskS
         this.task = task;
         this.taskId = task == null ? 0L: task.id;
         setChanged();
+    }
+
+    public ItemStack getTaskItem() {
+        Task t = getTask();
+        if (t instanceof ItemTask itemTask) {
+            return itemTask.getItemStack();
+        } else if (t instanceof ThroughputTask throughputTask && throughputTask.getResourceType() == ThroughputTypes.ITEM) {
+            return throughputTask.getItemStack();
+        }
+        return ItemStack.EMPTY;
     }
 
     @Override

@@ -13,6 +13,7 @@ import dev.ftb.mods.ftbquests.quest.task.CustomTask;
 import dev.ftb.mods.ftbquests.quest.task.DimensionTask;
 import dev.ftb.mods.ftbquests.quest.task.KillTask;
 import dev.ftb.mods.ftbquests.quest.task.Task;
+import dev.ftb.mods.ftbquests.quest.task.TaskScreenThroughputTracker;
 import dev.ftb.mods.ftbquests.registry.ModBlockEntityTypes;
 import dev.ftb.mods.ftbquests.registry.ModBlocks;
 import dev.ftb.mods.ftbquests.registry.ModDataComponents;

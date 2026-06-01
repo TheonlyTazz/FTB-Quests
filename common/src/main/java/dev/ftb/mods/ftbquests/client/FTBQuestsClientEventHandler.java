@@ -154,9 +154,10 @@ public class FTBQuestsClientEventHandler {
         return EventResult.pass();
     }
 
-    private void onClientTick(Minecraft mc) {
+    public void onClientTick(Minecraft mc) {
         if (mc.level != null && ClientQuestFile.exists() && mc.player != null) {
-            PinnedQuestsTracker.INSTANCE.tick(ClientQuestFile.INSTANCE);
+            ClientThroughputTelemetry.tick();
+            PinnedQuestsTracker.INSTANCE.tick(ClientQuestFile.getInstance());
 
             if (observationTasks == null) {
                 observationTasks = ClientQuestFile.INSTANCE.collect(ObservationTask.class);

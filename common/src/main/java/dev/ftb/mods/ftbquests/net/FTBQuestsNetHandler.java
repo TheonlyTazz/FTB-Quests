@@ -68,5 +68,6 @@ public class FTBQuestsNetHandler {
 		NetworkHelper.registerS2C(TogglePinnedResponseMessage.TYPE, TogglePinnedResponseMessage.STREAM_CODEC, TogglePinnedResponseMessage::handle);
 		NetworkHelper.registerS2C(UpdateTaskProgressMessage.TYPE, UpdateTaskProgressMessage.STREAM_CODEC, UpdateTaskProgressMessage::handle);
 		NetworkHelper.registerS2C(UpdateTeamDataMessage.TYPE, UpdateTeamDataMessage.STREAM_CODEC, UpdateTeamDataMessage::handle);
+		NetworkHelper.registerS2C(ThroughputRateSyncMessage.TYPE, ThroughputRateSyncMessage.STREAM_CODEC, ThroughputRateSyncMessage::handle);
 	}
 }
