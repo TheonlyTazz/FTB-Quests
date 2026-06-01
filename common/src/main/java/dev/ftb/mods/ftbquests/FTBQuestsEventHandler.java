@@ -11,6 +11,7 @@ import dev.ftb.mods.ftbquests.quest.task.CustomTask;
 import dev.ftb.mods.ftbquests.quest.task.DimensionTask;
 import dev.ftb.mods.ftbquests.quest.task.KillTask;
 import dev.ftb.mods.ftbquests.quest.task.Task;
+import dev.ftb.mods.ftbquests.quest.task.TaskScreenThroughputTracker;
 import dev.ftb.mods.ftbquests.registry.ModItems;
 import dev.ftb.mods.ftbquests.util.DeferredInventoryDetection;
 import dev.ftb.mods.ftbquests.util.FTBQuestsInventoryListener;
@@ -80,6 +81,7 @@ public class FTBQuestsEventHandler {
 		DeferredInventoryDetection.tick(server);
 		QuestBarrierBlock.TeleportTicker.tick(server);
 		CustomTask.TaskSync.tick(server);
+		TaskScreenThroughputTracker.tick(server);
 	}
 
 	public void playerLoggedIn(TeamPlayerLoggedInEvent.Data event) {

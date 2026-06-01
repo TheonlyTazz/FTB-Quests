@@ -18,6 +18,7 @@ public class TaskScreenRenderState extends BlockEntityRenderState {
     Component taskName = Component.empty();
     Component questName = Component.empty();
     Component progressText = Component.empty();
+    Component throughputText = Component.empty();
     float interpolatedProgress;
     @Nullable ResourceSprite resourceSprite;
     @Nullable ResourceSprite overlaySprite;

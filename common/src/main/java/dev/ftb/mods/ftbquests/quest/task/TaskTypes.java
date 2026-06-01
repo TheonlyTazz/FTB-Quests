@@ -50,6 +50,8 @@ public interface TaskTypes {
 			() -> new TextureAtlasSpriteRef(ClientUtils.getStillTexture(new FluidStack(Fluids.WATER, 1000L))).createIcon()
 					.combineWith(Icon.getIcon(FluidTask.TANK_TEXTURE.toString()))
 	);
+	TaskType THROUGHPUT = register(FTBQuestsAPI.id("throughput"), ThroughputTask::new,
+			() -> Icon.getIcon("minecraft:item/hopper"));
 
 	static void init() {
 	}

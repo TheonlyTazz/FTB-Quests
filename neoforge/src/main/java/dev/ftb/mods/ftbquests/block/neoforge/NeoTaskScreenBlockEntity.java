@@ -20,6 +20,9 @@ import dev.ftb.mods.ftbquests.quest.task.EnergyTask;
 import dev.ftb.mods.ftbquests.quest.task.FluidTask;
 import dev.ftb.mods.ftbquests.quest.task.ItemTask;
 import dev.ftb.mods.ftbquests.quest.task.Task;
+import dev.ftb.mods.ftbquests.quest.task.TaskScreenResourceConsumer;
+import dev.ftb.mods.ftbquests.quest.task.ThroughputTask;
+import dev.ftb.mods.ftbquests.quest.task.ThroughputTypes;
 
 import java.util.function.LongConsumer;
 import java.util.function.LongSupplier;
@@ -83,9 +86,14 @@ public class NeoTaskScreenBlockEntity extends TaskScreenBlockEntity {
 
         @Override
         public ItemResource getResource(int slot) {
-            return getTask() instanceof ItemTask itemTask && slot == 0 ?
-                    ItemResource.of(itemTask.getItemStack()) :
-                    ItemResource.EMPTY;
+            if (slot == 0) {
+                if (getTask() instanceof ItemTask itemTask) {
+                    return ItemResource.of(itemTask.getItemStack());
+                } else if (getTask() instanceof ThroughputTask throughputTask && throughputTask.getResourceType() == ThroughputTypes.ITEM) {
+                    return ItemResource.of(throughputTask.getItemStack());
+                }
+            }
+            return ItemResource.EMPTY;
         }
 
         @Override
@@ -104,7 +112,8 @@ public class NeoTaskScreenBlockEntity extends TaskScreenBlockEntity {
 
         @Override
         public boolean isValid(int slot, ItemResource resource) {
-            return getTask() instanceof ItemTask itemTask && itemTask.test(resource.toStack());
+            return getTask() instanceof ItemTask itemTask && itemTask.test(resource.toStack())
+                    || getTask() instanceof ThroughputTask throughputTask && throughputTask.acceptsItem(resource.toStack());
         }
 
         @Override
@@ -120,6 +129,13 @@ public class NeoTaskScreenBlockEntity extends TaskScreenBlockEntity {
                     inserted += nAdded;
                 }
                 return nAdded;
+            } else if (getTask() instanceof ThroughputTask t && data != null && t.acceptsItem(stack)) {
+                long nAdded = t.recordThroughput(data, ThroughputTypes.ITEM, (long)stack.getCount(), true);
+                if (nAdded > 0L) {
+                    this.snapshot.updateSnapshots(transaction);
+                    inserted += nAdded;
+                }
+                return Math.toIntExact(nAdded);
             }
             return 0;
         }
@@ -152,9 +168,12 @@ public class NeoTaskScreenBlockEntity extends TaskScreenBlockEntity {
 
         @Override
         public FluidResource getResource(int i) {
-            return getTask() instanceof FluidTask fluidTask ?
-                    FluidResource.of(fluidTask.getFluid(), fluidTask.getFluidDataComponentPatch()) :
-                    FluidResource.EMPTY;
+            if (getTask() instanceof FluidTask fluidTask) {
+                return FluidResource.of(fluidTask.getFluid(), fluidTask.getFluidDataComponentPatch());
+            } else if (getTask() instanceof ThroughputTask throughputTask && throughputTask.getResourceType() == ThroughputTypes.FLUID) {
+                return FluidResource.of(throughputTask.getFluid(), throughputTask.getFluidDataComponentPatch());
+            }
+            return FluidResource.EMPTY;
         }
 
         @Override
@@ -164,12 +183,18 @@ public class NeoTaskScreenBlockEntity extends TaskScreenBlockEntity {
 
         @Override
         public long getCapacityAsLong(int i, FluidResource resource) {
-            return getTask() instanceof FluidTask t ? t.getMaxProgress() : 0L;
+            if (getTask() instanceof FluidTask t) {
+                return t.getMaxProgress();
+            } else if (getTask() instanceof ThroughputTask throughputTask && throughputTask.getResourceType() == ThroughputTypes.FLUID) {
+                return Long.MAX_VALUE;
+            }
+            return 0L;
         }
 
         @Override
         public boolean isValid(int i, FluidResource resource) {
-            return false;
+            return getTask() instanceof FluidTask fluidTask && fluidTask.getFluid() == resource.getFluid()
+                    || getTask() instanceof ThroughputTask throughputTask && throughputTask.acceptsFluid(resource.getFluid());
         }
 
         @Override
@@ -180,6 +205,16 @@ public class NeoTaskScreenBlockEntity extends TaskScreenBlockEntity {
                     long curProgress = data.getProgress(fluidTask) + inserted;
                     long space = fluidTask.getMaxProgress() - curProgress;
                     long toAdd = Math.min(amount, space);
+                    if (toAdd > 0L) {
+                        this.snapshot.updateSnapshots(transaction);
+                        inserted += toAdd;
+                    }
+                    return Math.toIntExact(toAdd);
+                }
+            } else if (getTask() instanceof ThroughputTask t && t.acceptsFluid(resource.getFluid())) {
+                TeamData data = getCachedTeamData();
+                if (data != null) {
+                    long toAdd = t.recordThroughput(data, ThroughputTypes.FLUID, (long)amount, true);
                     if (toAdd > 0L) {
                         this.snapshot.updateSnapshots(transaction);
                         inserted += toAdd;
@@ -221,7 +256,12 @@ public class NeoTaskScreenBlockEntity extends TaskScreenBlockEntity {
 
         @Override
         public long getCapacityAsLong() {
-            return getTask() instanceof EnergyTask energyTask ? energyTask.getValue() : 0L;
+            if (getTask() instanceof EnergyTask energyTask) {
+                return energyTask.getValue();
+            } else if (getTask() instanceof ThroughputTask throughputTask && throughputTask.getResourceType() == ThroughputTypes.ENERGY) {
+                return Long.MAX_VALUE;
+            }
+            return 0L;
         }
 
         @Override
@@ -231,6 +271,16 @@ public class NeoTaskScreenBlockEntity extends TaskScreenBlockEntity {
                 if (data != null && data.canStartTasks(energyTask.getQuest()) && !data.isCompleted(energyTask)) {
                     long space = energyTask.getMaxProgress() - data.getProgress(energyTask) - inserted;
                     long toInsert = Math.min(energyTask.getMaxInput(), Math.min(amount, space));
+                    if (toInsert > 0L) {
+                        this.snapshot.updateSnapshots(transaction);
+                        inserted += toInsert;
+                    }
+                    return Math.toIntExact(toInsert);
+                }
+            } else if (getTask() instanceof ThroughputTask t && t.acceptsEnergy()) {
+                TeamData data = getCachedTeamData();
+                if (data != null) {
+                    long toInsert = t.recordThroughput(data, ThroughputTypes.ENERGY, (long)amount, true);
                     if (toInsert > 0L) {
                         this.snapshot.updateSnapshots(transaction);
                         inserted += toInsert;
@@ -271,7 +321,11 @@ public class NeoTaskScreenBlockEntity extends TaskScreenBlockEntity {
             long inserted = progressGetter.getAsLong();
             if (!originalState.equals(inserted)) {
                 TeamData data = getCachedTeamData();
-                if (data != null) {
+                if (data != null && getTask() instanceof TaskScreenResourceConsumer consumer) {
+                    if (inserted > 0L) {
+                        consumer.recordThroughput(data, consumer.getResourceType(), inserted, false);
+                    }
+                } else if (data != null) {
                     data.setProgress(getTask(), data.getProgress(getTask()) + inserted);
                 }
                 progressSetter.accept(0L);

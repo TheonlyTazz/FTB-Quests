@@ -15,6 +15,8 @@ import dev.ftb.mods.ftbquests.quest.QuestObjectBase;
 import dev.ftb.mods.ftbquests.quest.TeamData;
 import dev.ftb.mods.ftbquests.quest.task.ItemTask;
 import dev.ftb.mods.ftbquests.quest.task.Task;
+import dev.ftb.mods.ftbquests.quest.task.ThroughputTask;
+import dev.ftb.mods.ftbquests.quest.task.ThroughputTypes;
 import dev.ftb.mods.ftbquests.registry.ModBlockEntityTypes;
 import dev.ftb.mods.ftbquests.registry.ModBlocks;
 import dev.ftb.mods.ftbquests.registry.ModDataComponents;
@@ -78,7 +80,12 @@ public class TaskScreenBlockEntity extends EditableBlockEntity implements ITaskS
     }
 
     public ItemStack getTaskItem() {
-        return task instanceof ItemTask itemTask ? itemTask.getItemStack() : ItemStack.EMPTY;
+        if (task instanceof ItemTask itemTask) {
+            return itemTask.getItemStack();
+        } else if (task instanceof ThroughputTask throughputTask && throughputTask.getResourceType() == ThroughputTypes.ITEM) {
+            return throughputTask.getItemStack();
+        }
+        return ItemStack.EMPTY;
     }
 
     public void setTask(@Nullable Task task) {

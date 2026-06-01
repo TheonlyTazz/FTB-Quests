@@ -11,6 +11,8 @@ import dev.ftb.mods.ftbquests.quest.TeamData;
 import dev.ftb.mods.ftbquests.quest.task.EnergyTask;
 import dev.ftb.mods.ftbquests.quest.task.FluidTask;
 import dev.ftb.mods.ftbquests.quest.task.Task;
+import dev.ftb.mods.ftbquests.quest.task.ThroughputTask;
+import dev.ftb.mods.ftbquests.quest.task.ThroughputTypes;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -76,11 +78,27 @@ public class TaskScreenRenderer implements BlockEntityRenderer<TaskScreenBlockEn
         long progress = data.getProgress(task);
         if (!task.hideProgressNumbers()) {
             ChatFormatting col = progress > 0 ? (progress >= task.getMaxProgress() ? ChatFormatting.GREEN : ChatFormatting.YELLOW) : ChatFormatting.GOLD;
-            renderState.progressText = Component.literal(progress + " / " + task.getMaxProgress()).withStyle(col);
+            if (task instanceof ThroughputTask) {
+                renderState.progressText = Component.literal(task.formatProgress(data, progress) + " / " + task.formatMaxProgress()).withStyle(col);
+            } else {
+                renderState.progressText = Component.literal(progress + " / " + task.getMaxProgress()).withStyle(col);
+            }
         }
         renderState.interpolatedProgress = (float) progress / task.getMaxProgress();
+        renderState.throughputText = Component.empty();
+        if (task instanceof ThroughputTask throughputTask) {
+            renderState.throughputText = Component.literal(ClientThroughputTelemetry.get(data.getTeamId(), task.id)
+					.map(t -> throughputTask.formatRate(t.currentRate()) + " / " + throughputTask.formatRequiredRate())
+					.orElse("-- / " + throughputTask.formatRequiredRate()));
+        }
         if (task instanceof FluidTask fluidTask && fluidTask.getIcon() instanceof TextureAtlasSpriteIcon && FTBQuestsClientEventHandler.tankSprite != null) {
             var state = fluidTask.getFluid().defaultFluidState();
+            var model = Minecraft.getInstance().getModelManager().getFluidStateModelSet().get(state);
+            renderState.resourceSprite = new ResourceSprite(model.stillMaterial().sprite(), true);
+            renderState.overlaySprite = new ResourceSprite(FTBQuestsClientEventHandler.tankSprite, false);
+            renderState.resourceSpriteTint = 0xFF000000 | (model.tintSource() == null ? 0xFFFFFFF : model.tintSource().color(state.createLegacyBlock()));
+        } else if (task instanceof ThroughputTask throughputTask && throughputTask.getResourceType() == ThroughputTypes.FLUID && FTBQuestsClientEventHandler.tankSprite != null) {
+            var state = throughputTask.getFluid().defaultFluidState();
             var model = Minecraft.getInstance().getModelManager().getFluidStateModelSet().get(state);
             renderState.resourceSprite = new ResourceSprite(model.stillMaterial().sprite(), true);
             renderState.overlaySprite = new ResourceSprite(FTBQuestsClientEventHandler.tankSprite, false);
@@ -122,6 +140,7 @@ public class TaskScreenRenderer implements BlockEntityRenderer<TaskScreenBlockEn
         // render progress numbers at bottom of screen
         if (!renderState.isInputOnly) {
             drawString(renderState, submitNodeCollector, poseStack, renderState.progressText, 0.83D, 0.15F);
+            drawString(renderState, submitNodeCollector, poseStack, renderState.throughputText, 0.73D, 0.1F);
         }
 
         // render icons/sprites for task item/fluid/energy in the middle
