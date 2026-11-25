@@ -153,6 +153,10 @@ public final class Quest extends QuestObject implements Movable, Excludable {
 		return minRequiredDependencies;
 	}
 
+	public DependencyRequirement getDependencyRequirement() {
+		return dependencyRequirement;
+	}
+
 	public boolean shouldHideDependentLines() {
 		return hideDependentLines;
 	}
@@ -1119,7 +1123,12 @@ public final class Quest extends QuestObject implements Movable, Excludable {
 	}
 
 	public boolean areDependenciesComplete(TeamData teamData) {
-		return checkDependencies(dep -> dependencyRequirement.needCompletion() ? teamData.isCompleted(dep) : teamData.isStarted(dep));
+		return checkDependencies(dep -> isDependencySatisfied(teamData, dep));
+	}
+
+	public boolean isDependencySatisfied(TeamData teamData, QuestObject dependency) {
+		return !dependency.invalid && (dependencyRequirement.needCompletion()
+				? teamData.isCompleted(dependency) : teamData.isStarted(dependency));
 	}
 
 	public boolean areDependenciesVisible(TeamData teamData) {

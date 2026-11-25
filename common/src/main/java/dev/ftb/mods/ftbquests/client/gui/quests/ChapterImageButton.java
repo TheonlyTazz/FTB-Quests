@@ -74,7 +74,7 @@ public class ChapterImageButton extends Button implements QuestPositionableButto
 	public boolean checkMouseOver(int mouseX, int mouseY) {
         if (questScreen.questPanel.mouseOverQuest != null
 				|| questScreen.movingObjects
-				|| questScreen.viewQuestPanel.isMouseOver()
+				|| questScreen.isMouseOverQuestWindow()
 				|| questScreen.chapterPanel.isMouseOver()
 				|| chapterImage.getClick().isEmpty() && !questScreen.file.canEdit()) {
             return false;

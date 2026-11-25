@@ -127,7 +127,7 @@ public class ChapterPanel extends Panel {
 
 	@Override
 	public boolean shouldDraw() {
-		return !questScreen.isViewingQuest() && super.shouldDraw();
+		return super.shouldDraw();
 	}
 
 	@Override

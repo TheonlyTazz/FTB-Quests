@@ -338,7 +338,7 @@ public class QuestPanel extends Panel {
 						poseStack.popPose();
 					}
 
-					if (QuestScreen.grid && !questScreen.isViewingQuest()) {
+					if (QuestScreen.grid && !questScreen.isMouseOverQuestWindow()) {
 						double boxX = ominX / dx * questScreen.scrollWidth + px;
 						double boxY = ominY / dy * questScreen.scrollHeight + py;
 						double boxW = omaxX / dx * questScreen.scrollWidth + px - boxX;
@@ -349,7 +349,7 @@ public class QuestPanel extends Panel {
 						GuiHelper.drawHollowRect(graphics, (int) Math.round(boxX), (int) Math.round(boxY), (int) Math.round(boxW), (int) Math.round(boxH), Color4I.WHITE.withAlpha(30), false);
 						poseStack.popPose();
 					}
-				} else if (!questScreen.isViewingQuest() || !questScreen.viewQuestPanel.isMouseOver()) {
+				} else if (!questScreen.isViewingQuest() || !questScreen.isMouseOverQuestWindow()) {
 					//int z = treeGui.getZoom();
 					double sx = (questX - questMinX) / dx * questScreen.scrollWidth + px;
 					double sy = (questY - questMinY) / dy * questScreen.scrollHeight + py;
@@ -364,7 +364,7 @@ public class QuestPanel extends Panel {
 					//RenderSystem.defaultAlphaFunc();
 					poseStack.popPose();
 
-					if (QuestScreen.grid && !questScreen.isViewingQuest()) {
+					if (QuestScreen.grid && !questScreen.isMouseOverQuestWindow()) {
 						poseStack.pushPose();
 						poseStack.translate(0, 0, 1000);
 						Color4I.WHITE.draw(graphics, (int) Math.round(sx), (int) Math.round(sy), 1, 1);
@@ -439,12 +439,9 @@ public class QuestPanel extends Panel {
 			return true;
 		}
 
-		if (questScreen.isViewingQuest()) {
-			questScreen.closeQuest();
-			return true;
-		}
+		questScreen.questWindows.closeUnkeptWindows();
 
-		if ((button.isLeft() || button.isMiddle() && questScreen.file.canEdit()) && isMouseOver() && !questScreen.isViewingQuest()) {
+		if ((button.isLeft() || button.isMiddle() && questScreen.file.canEdit()) && isMouseOver() && !questScreen.isMouseOverQuestWindow()) {
 			questScreen.prevMouseX = getMouseX();
 			questScreen.prevMouseY = getMouseY();
 			questScreen.grabbed = button;
@@ -510,7 +507,7 @@ public class QuestPanel extends Panel {
 				});
 			}
 
-			questScreen.openContextMenu(contextMenu).setExtraZlevel(900);
+			questScreen.openContextMenu(contextMenu).setExtraZlevel(questScreen.questWindows.getMaxZLevel() + 250);
 			return true;
 		}
 
@@ -577,7 +574,7 @@ public class QuestPanel extends Panel {
 
 	@Override
 	public boolean keyPressed(Key key) {
-		if (questScreen.selectedChapter != null && !questScreen.isViewingQuest() && (key.is(GLFW.GLFW_KEY_MINUS) || key.is(GLFW.GLFW_KEY_EQUAL))) {
+		if (questScreen.selectedChapter != null && !questScreen.isMouseOverQuestWindow() && (key.is(GLFW.GLFW_KEY_MINUS) || key.is(GLFW.GLFW_KEY_EQUAL))) {
 			questScreen.addZoom(key.is(GLFW.GLFW_KEY_MINUS) ? -1D : 1D);
 			return true;
 		}
@@ -586,7 +583,7 @@ public class QuestPanel extends Panel {
 
 	@Override
 	public boolean scrollPanel(double scroll) {
-		if (questScreen.selectedChapter != null && !questScreen.isViewingQuest() && isMouseOver()) {
+		if (questScreen.selectedChapter != null && !questScreen.isMouseOverQuestWindow() && isMouseOver()) {
 			if (FTBQuestsClientConfig.OLD_SCROLL_WHEEL.get()) {
 				questScreen.addZoom(scroll);
 			} else {

@@ -60,8 +60,11 @@ import java.net.URISyntaxException;
 import java.util.*;
 import java.util.function.BiConsumer;
 
-public class ViewQuestPanel extends ModalPanel {
+public class ViewQuestPanel extends Panel {
 	public static final Icon PAGEBREAK_ICON = Icon.getIcon(FTBQuestsAPI.rl("textures/gui/pagebreak.png"));
+	private static final int DEPENDENCIES_GAP = 6;
+	private static final int MIN_DEPENDENCIES_WIDTH = 110;
+	private static final int MAX_DEPENDENCIES_WIDTH = 170;
 
 	private final QuestScreen questScreen;
 	private Quest quest = null;
@@ -75,28 +78,46 @@ public class ViewQuestPanel extends ModalPanel {
 	private final List<Pair<Integer,Integer>> pageIndices = new ArrayList<>();
 	private final Long2IntMap currentPages = new Long2IntOpenHashMap();
 	private long lastScrollTime = 0L;
+	private boolean dragging;
+	private boolean moved;
+	private boolean descriptionCollapsed;
+	private boolean keptOpen;
+	private int dragOffsetX;
+	private int dragOffsetY;
+	private int windowX;
+	private int windowY;
+	private QuestDependenciesPanel dependenciesPanel;
+	private boolean dependenciesExpanded;
+	private boolean dependenciesManuallyToggled;
+	private List<QuestObject> displayedDependencies = List.of();
 
-	public ViewQuestPanel(QuestScreen questScreen) {
-		super(questScreen);
+	public ViewQuestPanel(QuestScreen questScreen, Panel parent) {
+		super(parent);
 		this.questScreen = questScreen;
 		setPosAndSize(-1, -1, 0, 0);
-		setOnlyRenderWidgetsInside(true);
+		setOnlyRenderWidgetsInside(false);
 		setOnlyInteractWithWidgetsInside(true);
-		// Vanilla applies a +Z translation of 150 for item rendering
-		// Supported quest size is up to 8x, so we need to translate at least 8*150 along the +Z axis,
-		//   to ensure the panel renders above any item icons
-		setExtraZlevel(1250);
+
 	}
 
 	@Override
 	public void onClosed() {
+		dragging = false;
+		moved = false;
+		dependenciesPanel = null;
+		displayedDependencies = List.of();
 		quest = null;
 		updateMouseOver(getMouseX(), getMouseY());
 	}
 
 	@Override
 	public boolean checkMouseOver(int mouseX, int mouseY) {
-		return quest != null && super.checkMouseOver(mouseX, mouseY);
+		return quest != null && (mouseX >= getX() && mouseX < getX() + width
+				&& mouseY >= getY() && mouseY < getY() + height
+				|| dependenciesPanel != null && mouseX >= dependenciesPanel.getX()
+				&& mouseX < dependenciesPanel.getX() + dependenciesPanel.width
+				&& mouseY >= dependenciesPanel.getY()
+				&& mouseY < dependenciesPanel.getY() + dependenciesPanel.height);
 	}
 
 	public Quest getViewedQuest() {
@@ -105,6 +126,8 @@ public class ViewQuestPanel extends ModalPanel {
 
 	public void setViewedQuest(Quest newQuest) {
 		if (quest != newQuest) {
+			dragging = false;
+			dependenciesManuallyToggled = false;
 			quest = newQuest;
 			refreshWidgets();
 		}
@@ -142,10 +165,15 @@ public class ViewQuestPanel extends ModalPanel {
 	@Override
 	public void addWidgets() {
 		setPosAndSize(-1, -1, 1, 1);
+		dependenciesPanel = null;
 
 		if (quest == null) {
 			return;
 		}
+		if (!dependenciesManuallyToggled) {
+			dependenciesExpanded = hasUnmetDependencies();
+		}
+		displayedDependencies = getDisplayedDependencies();
 
 		QuestObjectBase prev = QuestTheme.currentObject;
 		QuestTheme.currentObject = quest;
@@ -161,12 +189,12 @@ public class ViewQuestPanel extends ModalPanel {
 				.addFlags(Theme.CENTERED)
 				.setMinWidth(150).setMaxWidth(500).setSpacing(9)
 				.setText(Component.empty().withColor(ThemeProperties.QUEST_VIEW_TITLE.get().rgb()).append(quest.getTitle()));
-		int w = Math.max(200, titleField.width + 54);
+		int w = Math.max(220, titleField.width + 100);
 
 		if (quest.getMinWidth() > 0) {
 			w = Math.max(quest.getMinWidth(), w);
-		} else if (questScreen.selectedChapter.getDefaultMinWidth() > 0) {
-			w = Math.max(questScreen.selectedChapter.getDefaultMinWidth(), w);
+		} else if (quest.getChapter().getDefaultMinWidth() > 0) {
+			w = Math.max(quest.getChapter().getDefaultMinWidth(), w);
 		}
 
 		titleField.setPosAndSize(27, 4, w - 54, titleField.height);
@@ -226,7 +254,7 @@ public class ViewQuestPanel extends ModalPanel {
 			ww = Math.max(ww, widget.width);
 		}
 
-		Color4I borderColor = ThemeProperties.QUEST_VIEW_BORDER.get(questScreen.selectedChapter);
+		Color4I borderColor = ThemeProperties.QUEST_VIEW_BORDER.get(quest.getChapter());
 
 		ww = Mth.clamp(ww, 70, 140);
 		w = Math.max(w, ww * 2 + 10);
@@ -234,12 +262,17 @@ public class ViewQuestPanel extends ModalPanel {
 		if (ThemeProperties.FULL_SCREEN_QUEST.get(quest) == 1) {
 			w = questScreen.width - 1;
 		}
+		if (dependenciesExpanded) {
+			w = Math.min(w, Math.max(80, parent.width - MIN_DEPENDENCIES_WIDTH - DEPENDENCIES_GAP - 10));
+		}
 
 		if (w % 2 == 0) {
 			w++;
 		}
 
 		setWidth(w);
+		titleField.setMinWidth(w - 100).setMaxWidth(w - 100).reflow();
+		titleField.setPos(27, 4);
 		panelContent.setPosAndSize(0, Math.max(16, titleField.height + 8), w, 0);
 
 		int iconSize = Math.min(16, titleField.height + 2);
@@ -251,6 +284,17 @@ public class ViewQuestPanel extends ModalPanel {
 		Button buttonPin;
 		add(buttonPin = new PinViewQuestButton());
 		buttonPin.setPosAndSize(w - iconSize * 2 - 4, 4, iconSize, iconSize);
+
+		Button keepWindow = new SimpleButton(this,
+				Component.translatable(keptOpen ? "ftbquests.gui.release_window" : "ftbquests.gui.keep_window_open"),
+				keptOpen ? Icons.LOCK : Icons.LOCK_OPEN, (button, mouseButton) -> {
+			if (mouseButton.isLeft()) {
+				keptOpen = !keptOpen;
+				refreshWidgets();
+			}
+		});
+		keepWindow.setPosAndSize(w - iconSize * 4 - 8, 4, iconSize, iconSize);
+		add(keepWindow);
 
 		if (questScreen.selectedChapter.id != quest.getChapter().id) {
 			GotoLinkedQuestButton b = new GotoLinkedQuestButton();
@@ -271,7 +315,7 @@ public class ViewQuestPanel extends ModalPanel {
 			add(buttonOpenDependencies = new SimpleButton(this, Component.translatable("ftbquests.gui.no_dependencies"), Icon.getIcon(FTBQuestsAPI.MOD_ID + ":textures/gui/arrow_left.png").withTint(borderColor), (widget, button) -> {
 			}));
 		} else {
-			add(buttonOpenDependencies = new SimpleButton(this, Component.translatable("ftbquests.gui.view_dependencies"), Icon.getIcon(FTBQuestsAPI.MOD_ID + ":textures/gui/arrow_left.png").withTint(ThemeProperties.QUEST_VIEW_TITLE.get()), (widget, button) -> showList(quest.streamDependencies().toList(), true)));
+			add(buttonOpenDependencies = new SimpleButton(this, Component.translatable("ftbquests.gui.view_dependencies"), Icon.getIcon(FTBQuestsAPI.MOD_ID + ":textures/gui/arrow_left.png").withTint(ThemeProperties.QUEST_VIEW_TITLE.get()), (widget, button) -> toggleDependenciesPanel()));
 		}
 
 		Button buttonOpenDependants;
@@ -279,7 +323,7 @@ public class ViewQuestPanel extends ModalPanel {
 			add(buttonOpenDependants = new SimpleButton(this, Component.translatable("ftbquests.gui.no_dependants"), Icon.getIcon(FTBQuestsAPI.MOD_ID + ":textures/gui/arrow_right.png").withTint(borderColor), (widget, button) -> {
 			}));
 		} else {
-			add(buttonOpenDependants = new SimpleButton(this, Component.translatable("ftbquests.gui.view_dependants"), Icon.getIcon(FTBQuestsAPI.MOD_ID + ":textures/gui/arrow_right.png").withTint(ThemeProperties.QUEST_VIEW_TITLE.get()), (widget, button) -> showList(quest.getDependants(), false)));
+			add(buttonOpenDependants = new SimpleButton(this, Component.translatable("ftbquests.gui.view_dependants"), Icon.getIcon(FTBQuestsAPI.MOD_ID + ":textures/gui/arrow_right.png").withTint(ThemeProperties.QUEST_VIEW_TITLE.get()), (widget, button) -> showDependants(quest.getDependants())));
 		}
 
 		buttonOpenDependencies.setPosAndSize(0, panelContent.posY + 2, 13, 13);
@@ -340,52 +384,68 @@ public class ViewQuestPanel extends ModalPanel {
 			widget.setY(widget.posY + roy);
 		}
 
-		panelText.setPosAndSize(3, 16 + h + 12, w - 6, 0);
-
-		Component subtitle = quest.getSubtitle();
-
-		if (TextUtils.isComponentEmpty(subtitle) && canEdit) {
-			subtitle = Component.literal("[No Subtitle]");
-		}
-
-		if (!TextUtils.isComponentEmpty(subtitle)) {
-			panelText.add(new QuestDescriptionField(panelText, canEdit, TranslationKey.QUEST_SUBTITLE, (b, clickedW) -> editSubtitle())
-					.addFlags(Theme.CENTERED)
-					.setMinWidth(panelText.width).setMaxWidth(panelText.width)
-					.setSpacing(9)
-					.setText(Component.empty().withStyle(ChatFormatting.ITALIC,ChatFormatting.GRAY).append(subtitle)));
-		}
-
-		boolean showText = !quest.getHideTextUntilComplete().get(quest.getChapter().isHideTextUntilComplete())
-				|| questScreen.file.selfTeamData != null && questScreen.file.selfTeamData.isCompleted(quest);
-
+		SimpleTextButton descriptionToggle = new SimpleTextButton(panelContent,
+				Component.translatable(descriptionCollapsed ? "ftbquests.gui.expand_description" : "ftbquests.gui.collapse_description"),
+				descriptionCollapsed ? Icons.DOWN : Icons.UP) {
+			@Override
+			public void onClicked(MouseButton button) {
+				if (button.isLeft()) {
+					descriptionCollapsed = !descriptionCollapsed;
+					setWindowPosition(ViewQuestPanel.this.posX, ViewQuestPanel.this.posY);
+					refreshWidgets();
+				}
+			}
+		};
+		descriptionToggle.setPosAndSize(3, 16 + h + 8, w - 6, 14);
+		panelContent.add(descriptionToggle);
+		panelText.setPosAndSize(3, descriptionToggle.posY + 18, w - 6, 0);
 		buildPageIndices();
 
-		if (showText || canEdit) {
-			if (!showText) {
-				SimpleButton btn = new SimpleButton(panelText, List.of(Component.translatable("ftbquests.quest.text_hidden_outside_edit_mode")), ThemeProperties.HIDDEN_ICON.get().withTint(Color4I.rgb(0xA0A0A0)), (b, mb) -> {});
-				btn.setSize(12, 12);
-				panelText.add(btn);
-			}
-			if (!pageIndices.isEmpty()) {
-				addDescriptionText(canEdit, subtitle);
-			}
-			if (!quest.getGuidePage().isEmpty()) {
-				if (!TextUtils.isComponentEmpty(subtitle)) {
-					panelText.add(new VerticalSpaceWidget(panelText, 7));
-				}
-				panelText.add(new OpenInGuideButton(panelText, quest));
-			}
-		}
+		if (!descriptionCollapsed) {
+			Component subtitle = quest.getSubtitle();
 
-		if (pageIndices.size() > 1 || canEdit) {
-			addButtonBar(canEdit);
+			if (TextUtils.isComponentEmpty(subtitle) && canEdit) {
+				subtitle = Component.literal("[No Subtitle]");
+			}
+
+			if (!TextUtils.isComponentEmpty(subtitle)) {
+				panelText.add(new QuestDescriptionField(panelText, canEdit, TranslationKey.QUEST_SUBTITLE, (b, clickedW) -> editSubtitle())
+						.addFlags(Theme.CENTERED)
+						.setMinWidth(panelText.width).setMaxWidth(panelText.width)
+						.setSpacing(9)
+						.setText(Component.empty().withStyle(ChatFormatting.ITALIC,ChatFormatting.GRAY).append(subtitle)));
+			}
+
+			boolean showText = !quest.getHideTextUntilComplete().get(quest.getChapter().isHideTextUntilComplete())
+					|| questScreen.file.selfTeamData != null && questScreen.file.selfTeamData.isCompleted(quest);
+
+
+			if (showText || canEdit) {
+				if (!showText) {
+					SimpleButton btn = new SimpleButton(panelText, List.of(Component.translatable("ftbquests.quest.text_hidden_outside_edit_mode")), ThemeProperties.HIDDEN_ICON.get().withTint(Color4I.rgb(0xA0A0A0)), (b, mb) -> {});
+					btn.setSize(12, 12);
+					panelText.add(btn);
+				}
+				if (!pageIndices.isEmpty()) {
+					addDescriptionText(canEdit, subtitle);
+				}
+				if (!quest.getGuidePage().isEmpty()) {
+					if (!TextUtils.isComponentEmpty(subtitle)) {
+						panelText.add(new VerticalSpaceWidget(panelText, 7));
+					}
+					panelText.add(new OpenInGuideButton(panelText, quest));
+				}
+			}
+
+			if (pageIndices.size() > 1 || canEdit) {
+				addButtonBar(canEdit);
+			}
 		}
 
 		if (panelText.getWidgets().isEmpty()) {
 			panelContent.add(new ColorWidget(panelContent, borderColor, null).setPosAndSize(w2, 0, 1, h + 40));
 			panelText.setHeight(0);
-			setHeight(Math.min(panelContent.getContentHeight(), parent.height - 10));
+			setHeight(Math.min(panelContent.posY + descriptionToggle.posY + descriptionToggle.height + 4, parent.height - 10));
 		} else {
 			panelContent.add(new ColorWidget(panelContent, borderColor, null).setPosAndSize(w2, 0, 1, 16 + h + 6));
 			panelContent.add(new ColorWidget(panelContent, borderColor, null).setPosAndSize(1, 16 + h + 6, w - 2, 1));
@@ -394,13 +454,79 @@ public class ViewQuestPanel extends ModalPanel {
 		}
 
 		if (ThemeProperties.FULL_SCREEN_QUEST.get(quest) == 1) {
-			height = questScreen.height;
+			height = descriptionCollapsed ? height : questScreen.height;
 		}
 
-		setPos((parent.width - width) / 2, (parent.height - height) / 2);
-		panelContent.setHeight(height - 17);
+		if (dependenciesExpanded) {
+			dependenciesPanel = new QuestDependenciesPanel(this, questScreen, quest, displayedDependencies);
+			add(dependenciesPanel);
+			int dependencyWidth = Math.min(MAX_DEPENDENCIES_WIDTH, Math.max(MIN_DEPENDENCIES_WIDTH, parent.width - width - DEPENDENCIES_GAP - 10));
+			dependenciesPanel.layout(dependencyWidth, parent.height - 10);
+			dependenciesPanel.setPos(-dependencyWidth - DEPENDENCIES_GAP, 0);
+		}
+		if (moved && ThemeProperties.FULL_SCREEN_QUEST.get(quest) != 1) {
+			moveWindow(windowX, windowY);
+		} else {
+			int leftWidth = getDependenciesWidth();
+			setPos(leftWidth + (parent.width - width - leftWidth) / 2,
+					(parent.height - Math.max(height, dependenciesPanel == null ? 0 : dependenciesPanel.height)) / 2);
+		}
+		panelContent.setHeight(height - panelContent.posY);
 
 		QuestTheme.currentObject = prev;
+	}
+
+	public boolean isKeptOpen() {
+		return keptOpen;
+	}
+
+	public boolean isDescriptionCollapsed() {
+		return descriptionCollapsed;
+	}
+
+	public void setWindowPosition(int x, int y) {
+		moved = true;
+		moveWindow(x, y);
+	}
+
+	public enum DependencyPanelState {
+		AUTOMATIC, OPEN, CLOSED
+	}
+
+	public DependencyPanelState getDependencyPanelState() {
+		return dependenciesManuallyToggled
+				? (dependenciesExpanded ? DependencyPanelState.OPEN : DependencyPanelState.CLOSED)
+				: DependencyPanelState.AUTOMATIC;
+	}
+
+	public void restoreWindowState(int x, int y, boolean collapsed, boolean keepOpen, DependencyPanelState dependencyPanelState) {
+		descriptionCollapsed = collapsed;
+		keptOpen = keepOpen;
+		dependenciesManuallyToggled = dependencyPanelState != DependencyPanelState.AUTOMATIC;
+		dependenciesExpanded = dependencyPanelState == DependencyPanelState.OPEN;
+		refreshWidgets();
+		setWindowPosition(x, y);
+	}
+
+	public void toggleDependenciesPanel() {
+		dependenciesManuallyToggled = true;
+		dependenciesExpanded = !dependenciesExpanded;
+		refreshWidgets();
+		updateMouseOver(getMouseX(), getMouseY());
+	}
+
+	private List<QuestObject> getDisplayedDependencies() {
+		return quest.streamDependencies()
+				.filter(dependency -> dependenciesManuallyToggled || !quest.isDependencySatisfied(questScreen.file.selfTeamData, dependency))
+				.toList();
+	}
+
+	private boolean hasUnmetDependencies() {
+		return quest.hasDependencies() && !quest.areDependenciesComplete(questScreen.file.selfTeamData);
+	}
+
+	private int getDependenciesWidth() {
+		return dependenciesPanel == null ? 0 : dependenciesPanel.width + DEPENDENCIES_GAP;
 	}
 
 	private void addDescriptionText(boolean canEdit, Component subtitle) {
@@ -469,7 +595,7 @@ public class ViewQuestPanel extends ModalPanel {
 		}
 
 		if (canEdit) {
-			SimpleTextButton edit = new SimpleTextButton(buttonPanel, Component.translatable("ftbquests.gui.edit").append(" ▼"), ThemeProperties.EDIT_ICON.get()) {
+			SimpleTextButton edit = new SimpleTextButton(buttonPanel, Component.translatable("ftbquests.gui.edit").append(" \u25BC"), ThemeProperties.EDIT_ICON.get()) {
 				@Override
 				public void onClicked(MouseButton mouseButton) {
 					openEditButtonContextMenu();
@@ -542,6 +668,13 @@ public class ViewQuestPanel extends ModalPanel {
 	@Override
 	public void tick() {
 		super.tick();
+		if (quest != null && (!dependenciesManuallyToggled
+				&& (dependenciesExpanded != hasUnmetDependencies()
+				|| dependenciesExpanded && !displayedDependencies.equals(getDisplayedDependencies()))
+				|| dependenciesPanel != null && dependenciesPanel.needsRefresh())) {
+			refreshWidgets();
+			updateMouseOver(getMouseX(), getMouseY());
+		}
 
 		if (quest != null && quest.hasDependencies() && !questScreen.file.selfTeamData.canStartTasks(quest) && buttonOpenDependencies != null) {
 			float red = Mth.sin((System.currentTimeMillis() % 1200) * (3.1415927f / 1200f));
@@ -554,16 +687,9 @@ public class ViewQuestPanel extends ModalPanel {
 		NetworkManager.sendToServer(EditObjectMessage.forQuestObject(quest));
 	}
 
-	private void showList(Collection<QuestObject> c, boolean dependencies) {
+	private void showDependants(Collection<QuestObject> c) {
 		int hidden = 0;
 		List<ContextMenuItem> contextMenu = new ArrayList<>();
-
-		if (dependencies && quest.getMinRequiredDependencies() > 0) {
-			contextMenu.add(new ContextMenuItem(
-					Component.translatable("ftbquests.quest.min_required_header", quest.getMinRequiredDependencies())
-							.withStyle(ChatFormatting.UNDERLINE), Color4I.empty(), null).setEnabled(false)
-			);
-		}
 
 		for (QuestObject object : c) {
 			if (questScreen.file.canEdit() || object.isSearchable(questScreen.file.selfTeamData)) {
@@ -572,7 +698,7 @@ public class ViewQuestPanel extends ModalPanel {
 					Component suffix = Component.literal(" [").append(object.getQuestChapter().getTitle()).append("]").withStyle(ChatFormatting.GRAY);
 					title.append(suffix);
 				}
-				contextMenu.add(new ContextMenuItem(title, Color4I.empty(), button -> questScreen.open(object, true)));
+				contextMenu.add(new ContextMenuItem(title, Color4I.empty(), button -> questScreen.openAdditionalQuest(object)));
 			} else {
 				hidden++;
 			}
@@ -841,7 +967,51 @@ public class ViewQuestPanel extends ModalPanel {
 
 	@Override
 	public boolean mousePressed(MouseButton button) {
-		return super.mousePressed(button) || isMouseOver();
+		if (super.mousePressed(button)) {
+			return true;
+		}
+		if (button.isLeft() && isMouseOver() && quest != null
+				&& ThemeProperties.FULL_SCREEN_QUEST.get(quest) != 1
+				&& super.checkMouseOver(getMouseX(), getMouseY()) && getMouseY() < panelContent.getY()) {
+			dragging = true;
+			dragOffsetX = getMouseX() - getX();
+			dragOffsetY = getMouseY() - getY();
+			return true;
+		}
+		return isMouseOver();
+	}
+
+	@Override
+	public boolean mouseDragged(int button, double dragX, double dragY) {
+		if (dragging && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+			moved = true;
+			moveWindow(getMouseX() - parent.getX() - dragOffsetX, getMouseY() - parent.getY() - dragOffsetY);
+			updateMouseOver(getMouseX(), getMouseY());
+			return true;
+		}
+		return super.mouseDragged(button, dragX, dragY);
+	}
+
+	@Override
+	public void mouseReleased(MouseButton button) {
+		if (button.isLeft()) {
+			dragging = false;
+		}
+		super.mouseReleased(button);
+	}
+
+	private void moveWindow(int x, int y) {
+		int leftWidth = getDependenciesWidth();
+		windowX = Mth.clamp(x, leftWidth, Math.max(leftWidth, parent.width - width));
+		int groupHeight = Math.max(height, dependenciesPanel == null ? 0 : dependenciesPanel.height);
+		windowY = Mth.clamp(y, 0, Math.max(0, parent.height - groupHeight));
+		setPos(windowX, windowY);
+	}
+
+	@Override
+	public boolean scrollPanel(double scroll) {
+		// The two windows scroll their content independently, without moving their headers.
+		return false;
 	}
 
 	@Override
@@ -850,6 +1020,9 @@ public class ViewQuestPanel extends ModalPanel {
 
 		if (super.mouseScrolled(scroll)) {
 			lastScrollTime = now;
+			return true;
+		}
+		if (dependenciesPanel != null && dependenciesPanel.isMouseOver()) {
 			return true;
 		}
 
@@ -1062,7 +1235,7 @@ public class ViewQuestPanel extends ModalPanel {
 		}
 
 		private void gotoLink(QuestLink link) {
-			questScreen.closeQuest();
+			questScreen.questWindows.closeWindow(ViewQuestPanel.this);
 			questScreen.selectChapter(link.getChapter());
 			questScreen.questPanel.scrollTo(link.getX() + 0.5D, link.getX() + 0.5D);
 		}
@@ -1099,7 +1272,7 @@ public class ViewQuestPanel extends ModalPanel {
 		@Override
 		public void onClicked(MouseButton button) {
 			playClickSound();
-			questScreen.closeQuest();
+			questScreen.questWindows.closeWindow(ViewQuestPanel.this);
 		}
 	}
 

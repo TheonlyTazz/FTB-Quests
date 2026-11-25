@@ -61,7 +61,7 @@ public class QuestButton extends Button implements QuestPositionableButton {
 
 	@Override
 	public boolean checkMouseOver(int mouseX, int mouseY) {
-		if (!shouldDraw() || questScreen.movingObjects || questScreen.viewQuestPanel.isMouseOver() || questScreen.chapterPanel.isMouseOver()) {
+		if (!shouldDraw() || questScreen.movingObjects || questScreen.isMouseOverQuestWindow() || questScreen.chapterPanel.isMouseOver()) {
 			return false;
 		}
 
@@ -188,9 +188,7 @@ public class QuestButton extends Button implements QuestPositionableButton {
 			}
 		} else if (button.isLeft()) {
 			if (isCtrlKeyDown() && canEdit) {
-				if (questScreen.isViewingQuest()) {
-					questScreen.closeQuest();
-				}
+				questScreen.questWindows.closeUnkeptWindows();
 				questScreen.toggleSelected(moveAndDeleteFocus());
 			} else if (isKeyDown(InputConstants.KEY_LALT) && canEdit) {
 				theQuestObject().onEditButtonClicked(questScreen);

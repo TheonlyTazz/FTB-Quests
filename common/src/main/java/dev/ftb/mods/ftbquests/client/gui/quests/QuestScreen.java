@@ -65,11 +65,12 @@ public class QuestScreen extends BaseScreen {
 	static boolean grid = false;
 	private PersistedData pendingPersistedData;
 	private final Deque<Long> questViewHistory = new ArrayDeque<>();
+	private final List<ModalPanel> raisedModalPanels = new ArrayList<>();
 
 	public final QuestPanel questPanel;
 	public final OtherButtonsPanelBottom otherButtonsBottomPanel;
 	public final OtherButtonsPanelTop otherButtonsTopPanel;
-	public final ViewQuestPanel viewQuestPanel;
+	public final QuestWindowWorkspace questWindows;
 
 	public QuestScreen(ClientQuestFile clientQuestFile, @Nullable PersistedData persistedData) {
 		file = clientQuestFile;
@@ -82,7 +83,7 @@ public class QuestScreen extends BaseScreen {
 		questPanel = new QuestPanel(this);
 		otherButtonsBottomPanel = new OtherButtonsPanelBottom(this);
 		otherButtonsTopPanel = new OtherButtonsPanelTop(this);
-		viewQuestPanel = new ViewQuestPanel(this);
+		questWindows = new QuestWindowWorkspace(this);
 
 		// defer restoring data till the first tick; things like scroll pos etc. are dependent
 		// on all the widgets being present
@@ -93,7 +94,8 @@ public class QuestScreen extends BaseScreen {
 
 	@Nullable
 	public Quest getViewedQuest() {
-		return viewQuestPanel.getViewedQuest();
+		ViewQuestPanel focused = questWindows.getFocusedWindow();
+		return focused == null ? null : focused.getViewedQuest();
 	}
 
 	public boolean isViewingQuest() {
@@ -109,7 +111,10 @@ public class QuestScreen extends BaseScreen {
 	}
 
 	public void refreshViewQuestPanel() {
-		viewQuestPanel.refreshWidgets();
+		for (ViewQuestPanel window : questWindows.getWindows()) {
+			window.refreshWidgets();
+		}
+		questWindows.updateMouseOver(getMouseX(), getMouseY());
 	}
 
 	@Override
@@ -119,7 +124,48 @@ public class QuestScreen extends BaseScreen {
 
 	@Override
 	public int getMaxZLevel() {
-		return 2000;  // to keep tooltips above context menus with a possibly high Z translation
+		int windowZ = questWindows.getMaxZLevel();
+		int modalZ = raisedModalPanels.stream().mapToInt(panel -> panel.getExtraZlevel() + 1).sum();
+		return Math.max(2000, Math.max(windowZ, modalZ + 10) + 500);
+	}
+
+	public boolean hasQuestModalOverlay() {
+		return !raisedModalPanels.isEmpty();
+	}
+
+	@Override
+	public void pushModalPanel(ModalPanel panel) {
+		int minimumZ = raisedModalPanels.isEmpty() ? questWindows.getMaxZLevel() + 250 : 250;
+		panel.setExtraZlevel(Math.max(panel.getExtraZlevel(), minimumZ));
+		raisedModalPanels.add(panel);
+		super.pushModalPanel(panel);
+	}
+
+	@Override
+	public void openPopupMenu(@Nullable PopupMenu popupMenu) {
+		super.openPopupMenu(popupMenu);
+		if (popupMenu == null) {
+			raisedModalPanels.removeIf(panel -> panel instanceof PopupMenu);
+		}
+	}
+
+	@Override
+	public ModalPanel popModalPanel() {
+		ModalPanel panel = super.popModalPanel();
+		raisedModalPanels.remove(panel);
+		return panel;
+	}
+
+	@Override
+	public void updateMouseOver(int mouseX, int mouseY) {
+		super.updateMouseOver(mouseX, mouseY);
+		if (questWindows.isMouseOver()) {
+			questPanel.updateMouseOver(-100000, -100000);
+			chapterPanel.updateMouseOver(-100000, -100000);
+			expandChaptersButton.updateMouseOver(-100000, -100000);
+			otherButtonsBottomPanel.updateMouseOver(-100000, -100000);
+			otherButtonsTopPanel.updateMouseOver(-100000, -100000);
+		}
 	}
 
 	@Override
@@ -130,11 +176,13 @@ public class QuestScreen extends BaseScreen {
 		add(expandChaptersButton);
 		add(otherButtonsBottomPanel);
 		add(otherButtonsTopPanel);
+		add(questWindows);
 	}
 
 	@Override
 	public void alignWidgets() {
 		QuestTheme.currentObject = selectedChapter;
+		questWindows.setSize(width, height);
 		otherButtonsBottomPanel.alignWidgets();
 		otherButtonsTopPanel.alignWidgets();
 		chapterPanel.alignWidgets();
@@ -152,11 +200,18 @@ public class QuestScreen extends BaseScreen {
 		PinnedQuestsTracker.INSTANCE.refresh();
 
 		super.onClosed();
+		raisedModalPanels.clear();
 	}
 
 	public void selectChapter(@Nullable Chapter chapter) {
+		selectChapter(chapter, false);
+	}
+
+	private void selectChapter(@Nullable Chapter chapter, boolean preserveWindows) {
 		if (selectedChapter != chapter) {
-			closeQuest();
+			if (!preserveWindows) {
+				questWindows.closeUnkeptWindows();
+			}
 			selectedChapter = chapter;
 			questPanel.refreshWidgets();
 			questPanel.resetScroll();
@@ -171,28 +226,44 @@ public class QuestScreen extends BaseScreen {
 		viewQuest(quest, true);
 	}
 
-	private void viewQuest(Quest quest, boolean addHistory) {
-		Quest current = viewQuestPanel.getViewedQuest();
-		if (current != quest) {
-			viewQuestPanel.setViewedQuest(quest);
-			if (addHistory && quest != null) {
-				questViewHistory.addFirst(quest.id);
-				if (questViewHistory.size() > 50) {
-					questViewHistory.removeLast();
-				}
-			}
-			if (current == null) {
-				pushModalPanel(viewQuestPanel);
-			} else if (quest == null) {
-				closeModalPanel(viewQuestPanel);
-			}
-			viewQuestPanel.updateMouseOver(getMouseX(), getMouseY());
+	private void viewQuest(@Nullable Quest quest, boolean addHistory) {
+		if (quest == null) {
+			closeQuest();
+			return;
 		}
+		questWindows.openQuest(quest, false);
+		if (addHistory && (questViewHistory.isEmpty() || questViewHistory.peekFirst() != quest.id)) {
+			questViewHistory.addFirst(quest.id);
+			if (questViewHistory.size() > 50) {
+				questViewHistory.removeLast();
+			}
+		}
+	}
+
+	public void openAdditionalQuest(QuestObject object) {
+		if (object instanceof Quest quest) {
+			questWindows.openQuest(quest, true);
+		} else if (object instanceof Task task) {
+			questWindows.openQuest(task.getQuest(), true);
+		} else if (object instanceof QuestLink link) {
+			link.getQuest().ifPresent(quest -> questWindows.openQuest(quest, true));
+		} else if (object instanceof Chapter chapter) {
+			selectChapter(chapter, true);
+		}
+		pendingPersistedData = null;
+	}
+
+	public boolean isMouseOverQuestWindow() {
+		return questWindows.isMouseOver();
 	}
 
 	@Override
 	public void onBack() {
-		if (isViewingQuest()) {
+		if (isViewingQuest() && !questWindows.getFocusedWindow().isKeptOpen()) {
+			if (questWindows.getWindows().size() > 1) {
+				closeQuest();
+				return;
+			}
 			if (FTBQuestsClientConfig.BACKSPACE_HISTORY.get() && !questViewHistory.isEmpty()) {
 				questViewHistory.removeFirst();
 				Long prevId = questViewHistory.peekFirst();
@@ -210,11 +281,14 @@ public class QuestScreen extends BaseScreen {
 	}
 
 	public void closeQuest() {
-		viewQuest(null);
+		ViewQuestPanel focused = questWindows.getFocusedWindow();
+		if (focused != null) {
+			questWindows.closeWindow(focused);
+		}
 	}
 
 	public void toggleSelected(Movable movable) {
-		viewQuest(null);
+		questWindows.closeUnkeptWindows();
 
 		if (selectedObjects.contains(movable)) {
 			selectedObjects.remove(movable);
@@ -772,8 +846,6 @@ public class QuestScreen extends BaseScreen {
 
 	@Override
 	public void addMouseOverText(TooltipList list) {
-//		list.zOffset = 950;
-//		list.zOffsetItemTooltip = 500;
 		super.addMouseOverText(list);
 	}
 
@@ -845,6 +917,12 @@ public class QuestScreen extends BaseScreen {
 		chapterPanel.setExpanded(persistedData.chaptersExpanded);
 		questViewHistory.clear();
 		questViewHistory.addAll(persistedData.questViewHistory);
+		for (QuestWindowState state : persistedData.questWindows) {
+			if (file.get(state.questId()) instanceof Quest quest) {
+				ViewQuestPanel window = questWindows.openQuest(quest, true);
+				window.restoreWindowState(state.x(), state.y(), state.descriptionCollapsed(), true, state.dependencyPanelState());
+			}
+		}
 	}
 
 	public void initiateMoving(Movable movable) {
@@ -864,6 +942,9 @@ public class QuestScreen extends BaseScreen {
 	/**
 	 * Allows certain attributes of the GUI to be remembered between invocations
 	 */
+	private record QuestWindowState(long questId, int x, int y, boolean descriptionCollapsed, ViewQuestPanel.DependencyPanelState dependencyPanelState) {
+	}
+
 	public static class PersistedData {
 		private final int zoom;
 		private final double scrollX, scrollY;
@@ -871,6 +952,7 @@ public class QuestScreen extends BaseScreen {
 		private final List<Long> selectedQuests;
 		private final boolean chaptersExpanded;
 		private final Deque<Long> questViewHistory;
+		private final List<QuestWindowState> questWindows;
 
 		private PersistedData(QuestScreen questScreen) {
 			zoom = questScreen.zoom;
@@ -880,6 +962,9 @@ public class QuestScreen extends BaseScreen {
 			selectedQuests = questScreen.selectedObjects.stream().map(Movable::getMovableID).filter(id -> id != 0).toList();
 			chaptersExpanded = questScreen.chapterPanel.expanded;
 			questViewHistory = new ArrayDeque<>(questScreen.questViewHistory);
+			questWindows = questScreen.questWindows.getWindows().stream().filter(ViewQuestPanel::isKeptOpen)
+					.map(window -> new QuestWindowState(window.getViewedQuest().id, window.posX, window.posY, window.isDescriptionCollapsed(), window.getDependencyPanelState()))
+					.toList();
 		}
 	}
 }
